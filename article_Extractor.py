@@ -5,32 +5,124 @@ from scipy.stats import chisquare
 from sklearn.feature_extraction.text import TfidfVectorizer as TFIDF
 from sklearn.externals import joblib
 from gensim import corpora
+from gensim.corpora.textcorpus import TextCorpus
+from gensim.corpora.mmcorpus import MmCorpus
+from gensim.models.tfidfmodel import TfidfModel
 
+#this program is used to get tfidf model
 
 inpath = '/disk/mysql/law_data/final_data/'
+modelpath = 'model/'
 
-corpus = []
 
-def get_corpus():
-    print('reading...')
+class law_corpus(TextCorpus):
+    def get_texts(self):
+        print('read to get corpus...')
+        fileList = os.listdir(inpath)
+        for fname in fileList:
+            fin = open(inpath + fname, 'r')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                yield line['content'].split()
+                line = fin.readline()
+            fin.close()
+            break
+        print('finish reading...')
+
+#used to build dictionary
+class MyCorpus():
+    def __iter__(self):
+        print('begin iteration...')
+        fileList = os.listdir(inpath)
+        for fname in fileList:
+            fin = open(inpath + fname, 'r')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                yield line['content'].split()
+                line = fin.readline()
+            fin.close()
+            #break
+        print('end iteration...')
+
+class streamCorpus():
+    def __init__(self, dictionary):
+        self.dictionary = dictionary
+
+    def __iter__(self):
+        print('begin iteration...')
+        fileList = os.listdir(inpath)
+        for fname in fileList:
+            fin = open(inpath + fname, 'r')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                yield self.dictionary.doc2bow(line['content'].split())
+                line = fin.readline()
+            fin.close()
+            #break
+        print('end iteration...')
+
+
+def buildDictionary(corpus):
+    #corpus = MyCorpus()
+    print('get dictionary...')
+    if not os.path.exists(modelpath + 'dictionary.model'):
+        # 构造词典
+        dictionary = corpora.Dictionary(corpus)
+        print(dictionary)
+        dictionary.save(modelpath + 'dictionary.model')
+    else:
+        dictionary = corpora.Dictionary.load(modelpath + 'dictionary.model')
+    print('done')
+
+    return dictionary
+
+
+def buildTfidfModel(corpus):
+    print('get tfidf model...')
+    if not os.path.exists(modelpath + 'tfidf.model'):
+        # 构造tfidf向量
+        tfidf = TfidfModel(corpus)
+        tfidf.save(modelpath + 'tfidf.model')
+    else:
+        tfidf = TfidfModel.load(modelpath + 'tfidf.model')
+    print('done')
+    return tfidf
+
+
+def build():
+    print('begin build tfidf model ...')
+
+    corpus = MyCorpus()
+    dictionary = buildDictionary(corpus)
+    corpus = streamCorpus(dictionary)
+    tfidf = buildTfidfModel(corpus)
+
+
+def getLabel():
+    label = []
     fileList = os.listdir(inpath)
-    for file in fileList:
-        fin = open(inpath + file, 'r')
+    for fname in fileList:
+        fin = open(inpath + fname, 'r')
         line = fin.readline()
         while line:
             line = json.loads(line)
-            corpus.append(line['content'].split())
+            label.append(line['meta'][''])
             line = fin.readline()
         fin.close()
-    print('finish reading')
 
-#tfidf = TFIDF(min_df=2, strip_accents="unicode", analyzer="word", token_pattern=r"\w{1,}", ngram_range=(1,3), use_idf=1,smooth_idf=1,sublinear_tf=1)
-get_corpus()
-dictionary = corpora.Dictionary(corpus)
-dictionary.save('dict.dict')
-corpus = [dictionary.doc2bow(text) for text in corpus]
-corpora.MmCorpus.serialize('/tmp/deerwester.mm', corpus)
+build()
 
-#tfidf.fit(corpus)
-#joblib.dump(tfidf, 'tfidf.model')
+#scipy_csc_matrix = gensim.matutils.corpus2csc(corpus)
+#↑把语料库转换成稀疏矩阵
+
+
+from sklearn.datasets import load_iris
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2
+
+
+
 
