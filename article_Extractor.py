@@ -1,3 +1,5 @@
+#this program is used to get tfidf model
+
 import thulac
 import json
 import os
@@ -9,7 +11,6 @@ from gensim.corpora.textcorpus import TextCorpus
 from gensim.corpora.mmcorpus import MmCorpus
 from gensim.models.tfidfmodel import TfidfModel
 
-#this program is used to get tfidf model
 
 inpath = '/disk/mysql/law_data/final_data/'
 modelpath = 'model/'
