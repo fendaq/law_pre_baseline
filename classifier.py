@@ -120,9 +120,10 @@ class classifier():
         x_train, x_test, y_train, y_test = train_test_split(self.matrix, self.label, test_size=0.2)
         self.model.fit(x_train, y_train)
 
-        y_prediect = self.model.predict(x_test)
-        qu = self.quality(y_prediect, y_test)
+        y_predict = self.model.predict(x_test)
+        qu = self.quality(y_predict, y_test)
         data['quality'] = qu
+        result[self.num] = data
 
         joblib.dump(self.model, str(self.num) + '.model')
         print(self.matrix.shape)
@@ -131,20 +132,52 @@ class classifier():
     def chisquare(self):
         self.matrix = SelectKBest(chi2, k = self.dim).fit_transform(self.matrix, self.label)
 
-    def quality(self, y_prediect, y_test):
-        microPre = metrics.precision_score(y_test, y_prediect, average='micro')
-        macroPre = metrics.precision_score(y_test, y_prediect, average='macro')
-        microRecall = metrics.recall_score(y_test, y_prediect, average='micro')
-        macroRecall = metrics.recall_score(y_test, y_prediect, average='macro')
-        f1 = metrics.f1_score(y_test, y_prediect, average='weighted')
+    def quality(self, y_predict, y_test):
+        microPre = metrics.precision_score(y_test, y_predict, average='micro')
+        macroPre = metrics.precision_score(y_test, y_predict, average='macro')
+        microRecall = metrics.recall_score(y_test, y_predict, average='micro')
+        macroRecall = metrics.recall_score(y_test, y_predict, average='macro')
+        f1 = metrics.f1_score(y_test, y_predict, average='weighted')
         ans = {}
         ans['microPre'] = microPre
         ans['macroPre'] = macroPre
         ans['microRecall'] = microRecall
         ans['macroRecall'] = macroRecall
         ans['F1'] = f1
+        print(classification_report(y_test, y_predict, target_names=['0', '1']))
 
-        print(classification_report(y_test, y_prediect, target_names=['0', '1']))
+        correctFor1 = 0
+        correctFor0 = 0
+        falseFor1 = 0
+        falseFor0 = 0
+        sumFor1 = 0
+        sumFor0 = 0
+        for i, v in enumerate(y_test):
+            if v == 1:
+                sumFor1 += 1
+                if y_predict[i] == 1:
+                    correctFor1 += 1
+                else:
+                    falseFor0 += 1
+            if v == 0:
+                sumFor0 += 1
+                if y_predict[i] == 0:
+                    correctFor0 += 1
+                else:
+                    falseFor1 += 1
+
+        precisionFor0 = precisionFor1 = recallFor0 = recallFor1 = 0
+        try:
+            precisionFor0 = (correctFor0) / (correctFor0 + falseFor0)
+            recallFor0 = (correctFor0) / sumFor0
+
+            precisionFor1 = (correctFor1) / (correctFor1 + falseFor1)
+            recallFor1 = (correctFor1) / sumFor1
+        except Exception as err:
+            pass
+
+        ans['0'] = {'precision': precisionFor0, 'recall': recallFor0}
+        ans['1'] = {'precision': precisionFor1, 'recall': recallFor1}
 
         return ans
 
@@ -175,7 +208,9 @@ def train(c):
 for v in arrayOfClassifier:
     train(v)
 
-
+fout = open('result.txt', 'w')
+print(json.dumps(result, ensure_ascii=False), file = fout)
+fout.close()
 
 
 
