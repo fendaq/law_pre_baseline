@@ -39,7 +39,8 @@ for file in fileList:
     line = fin.readline()
     while line:
         line = json.loads(line)
+
         if check(line, config):
-            print(json.dumps(line, config), file = fout)
+            print(json.dumps(line), file = fout)
         line = fin.readline()
     fout.close()

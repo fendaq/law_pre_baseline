@@ -18,11 +18,14 @@ from sklearn.metrics import classification_report
 from sklearn import metrics
 from sklearn.multiclass import OneVsRestClassifier
 import numpy as np
+from scipy.sparse import vstack
 from gensim import matutils
+import heapq
 
 
 #inpath = '/disk/mysql/law_data/final_data/'
 inpath = '/home/guozhipeng/law_data/goodData/'
+outpath = 'predict_data/'
 modelpath = 'model/'
 classfierPath = 'model/classfier/'
 lawPath = 'law_result1.txt'
@@ -34,6 +37,7 @@ dictionary = ''
 tfidf = ''
 law_list = []
 law_dic = {}
+tobe_law = {}
 #xf_list = []
 
 
@@ -56,8 +60,10 @@ def init():
     fin.close()
     for i, v in enumerate(law_list):
         law_dic[str(v)] = i
+        tobe_law[i] = v
 
 init()
+
 
 class classifier():
     def __init__(self, dim = 2000):
@@ -69,7 +75,7 @@ class classifier():
         self.label = []
         self.testSize = 0
         self.trainSize = 0
-        self.model = OneVsRestClassifier(LinearSVC())
+        self.model = OneVsRestClassifier(LinearSVC().set_params(probability=True))
 
         '''
         self.totalSize = 0
@@ -92,7 +98,15 @@ class classifier():
         for s in line['content']:
             text += s
         self.corpus.append(tfidf[dictionary.doc2bow(text)])
+        #for law predict
         self.label.append(law_dic[str(line['meta']['law'])])
+
+        #for accusation predict
+        #self.label.append(line['meta']['crit'])
+
+        #for time predict
+        #self.label.append(line['meta']['time'])
+
         if test:
             self.testSize += 1
         else:
@@ -130,12 +144,93 @@ class classifier():
         y_predict = self.model.predict(self.testx)
 
         print(classification_report(self.testy, y_predict))
+        print('microPrecision:', metrics.precision_score(self.testy, y_predict, average='micro'))
+        print('microRecall:', metrics.recall_score(self.testy, y_predict, average='micro'))
+        print('microF1:', metrics.f1_score(self.testy, y_predict, average='micro'))
+        print('macroPrecision:', metrics.precision_score(self.testy, y_predict, average='macro'))
+        print('macroRecall:', metrics.recall_score(self.testy, y_predict, average='macro'))
+        print('macroF1:', metrics.f1_score(self.testy, y_predict, average='macro'))
+
         #data = {'totalSize': self.totalSize, 'oneSize': self.oneSize, 'zeroSize:': self.zeroSize, 'testSize': self.testOneSize + self.testZeroSize, 'testOneSize': self.testOneSize}
         #print(data)
         #y_predict = self.model.predict(self.testMatrix)
         #qu = self.quality(y_predict, self.testLabel)
         #data['quality'] = qu
         #print(data)
+
+    def getLine(self):
+        for i in range(20):
+            fin = open(inpath + str(i), 'r')
+            line = fin.readline()
+            while line:
+                yield [i, json.loads(line)]
+                line = fin.readline()
+            fin.close()
+
+
+    def predict(self, k = 2):
+        global tobe_law
+
+        #fileIndex = 0
+        #fout = open(outpath + str(fileIndex), 'w')
+        ally = self.model.decision_function(vstack([self.trainx, self.testx]))
+        print(type(ally))
+        print(ally.shape)
+        num = 0
+        for i in range(20):
+            fin = open(inpath + str(i), 'r')
+            fout = open(outpath + str(i), 'w')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                y = ally[num].tolist()
+                kLargestList = heapq.nlargest(k, y)
+                k1 = y.index(kLargestList[0])
+                k2 = y.index(kLargestList[1])
+                line['meta']['top2law'] = [tobe_law[k1], tobe_law[k2]]
+                print(json.dumps(line), file = fout)
+                #yield [i, json.loads(line)]
+                line = fin.readline()
+                num += 1
+            fin.close()
+            fout.close()
+
+        '''
+        for y in ally:
+            y = y.tolist()
+            kLargestList = heapq.nlargest(k, y)
+            k1 = y.index(kLargestList[0])
+            k2 = y.index(kLargestList[1])
+            data = self.getLine()
+            data[1]['meta']['top2law'] = [tobe_law[k1], tobe_law[k2]]
+            if data[0] != fileIndex:
+                fout.close()
+                fileIndex += 1
+                fout = open(outpath + str(fileIndex), 'w')
+            print(json.loads(data[1]), file=fout)
+        '''
+        '''
+        print(self.trainx.shape)
+        print(self.testx.shape)
+        allx = np.vstack((self.trainx, self.testx))
+        print(allx.shape)
+        fileIndex = 0
+        fout = open(outpath + str(fileIndex), 'w')
+        for x in allx:
+            predict_result = self.model.predict_proba(x)
+            kLargestList = heapq.nlargest(k, predict_result)
+            k1 = predict_result.index(kLargestList[0])
+            k2 = predict_result.index(kLargestList[1])
+            data = self.getLine()
+            data[1]['meta']['top2law'] = [tobe_law[k1], tobe_law[k2]]
+            if data[0] != fileIndex:
+                fout.close()
+                fileIndex += 1
+                fout = open(outpath + str(fileIndex), 'w')
+            print(json.loads(data[1]), file = fout)
+
+        '''
+
 
     def chisquare(self):
         self.matrix = SelectKBest(chi2, k = self.dim).fit_transform(self.matrix, self.label)
@@ -233,7 +328,9 @@ def trainArticle():
         fin.close()
     print('read Done')
     cl.train()
-    cl.test()
+    #cl.test()
+    cl.predict()
+
 
 trainArticle()
 
