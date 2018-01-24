@@ -1,4 +1,4 @@
-#author: xcj
+# coding: utf8
 #this program is used to train SVM classifier!
 
 import json
@@ -16,82 +16,87 @@ from sklearn.svm import LinearSVC
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn import metrics
+from sklearn.multiclass import OneVsRestClassifier
 import numpy as np
 from gensim import matutils
 
 
-inpath = '/disk/mysql/law_data/final_data/'
+#inpath = '/disk/mysql/law_data/final_data/'
+inpath = '/home/guozhipeng/law_data/goodData/'
 modelpath = 'model/'
 classfierPath = 'model/classfier/'
-accusation_path = 'accusation_list2.txt'
-xf_path = 'xf_json.txt'
+lawPath = 'law_result1.txt'
+#accusation_path = 'accusation_list2.txt'
+#xf_path = 'xf_json.txt'
 
 result = {}
-accusation_list = []
 dictionary = ''
-xf_list = []
 tfidf = ''
+law_list = []
+law_dic = {}
+#xf_list = []
+
 
 def init():
     #初始化一些全局变量
     global dictionary
     global tfidf
     global accusation_list
-    global xf_list
+    global law_list
 
     dictionary = corpora.Dictionary.load(modelpath + 'dictionary.model')
     tfidf = TfidfModel.load(modelpath + 'tfidf.model')
-    fin = open(accusation_path, 'r')
-    accusation_list = json.loads(fin.read())
+
+    fin = open(lawPath, 'r')
+    line = fin.readline()
+    while line:
+        line = line.split()
+        law_list.append([int(line[0]), int(line[1])])
+        line = fin.readline()
     fin.close()
-    fin = open(xf_path, 'r')
-    xf_list = json.loads(fin.read()).keys()
-    fin.close()
+    for i, v in enumerate(law_list):
+        law_dic[str(v)] = i
 
 init()
 
-
 class classifier():
-    def __init__(self, num, dim = 2000):
-        self.num = num   #罪名代号
+    def __init__(self, dim = 2000):
+        #self.num = num   #罪名代号
         #self.accusationName = accusation_list[num] #罪名名称
+
         self.dim = dim  #降维之后的向量维数
-        self.totalSize = 0
         self.corpus = []
         self.label = []
+        self.testSize = 0
+        self.trainSize = 0
+        self.model = OneVsRestClassifier(LinearSVC())
+
+        '''
+        self.totalSize = 0
+        self.testCorpus = []
+        self.testLabel = []
         self.oneSize = 0
         self.zeroSize = 0
-        self.zeros = 0
-        self.model = LinearSVC()
+        self.testOneSize = 0
+        self.testZeroSize = 0
+        #self.model = LinearSVC()
+        '''
 
-    def havelabel(self, law):
-        for m in law:
-            try:
-                if m[0] == self.num[0] and m[2] == self.num[1]:
-                    return True
-            except Exception as err:
-                pass
-        return False
 
-    def addData(self, text, label):
+    def addData(self, line, test = False):
         global dictionary
         global tfidf
-        if self.havelabel(label):
-            self.totalSize += 1
-            if self.oneSize <= 400:
-                self.label.append(1)
-                self.oneSize += 1
-            else:
-                return
+        global law_dic
+
+        text = []
+        for s in line['content']:
+            text += s
+        self.corpus.append(tfidf[dictionary.doc2bow(text)])
+        self.label.append(law_dic[str(line['meta']['law'])])
+        if test:
+            self.testSize += 1
         else:
-            self.zeroSize += 1
-            #if self.zeroSize % 1000 == 0 and self.zeroSize <= 400:
-            if self.zeroSize <= 500:
-                self.zeros += 1
-                self.label.append(0)
-            else:
-                return
-        self.corpus.append(tfidf[dictionary.doc2bow(text.split())])
+            self.trainSize += 1
 
     def dataToMatrix(self):
         data = []
@@ -103,34 +108,44 @@ class classifier():
                 cols.append(elem[0])
                 data.append(elem[1])
         self.matrix = csr_matrix((data,(rows,cols)))
-        #释放数据，减少内存使用？
-        self.corpus.clear()
+        self.corpus.clear()  # 释放数据，减少内存使用
 
 
     def train(self):
-        global result
+        #global result
 
-        print(self.num)
-        print('totalSize:', self.totalSize, 'readSize:', self.oneSize, 'zeroSize:', self.zeros)
-        #self.addData()
-        data = {'totalSize:', self.totalSize, 'readSize:', self.oneSize, 'zeroSize:', self.zeros}
+        #print(self.num)
+
         self.dataToMatrix()
         self.chisquare()
+        self.train_test_split()
 
-        x_train, x_test, y_train, y_test = train_test_split(self.matrix, self.label, test_size=0.2)
-        self.model.fit(x_train, y_train)
+        print('begin to train')
+        self.model.fit(self.trainx, self.trainy)
+        print('train end')
+        joblib.dump(self.model, 'model/law_predict.model')
+        #joblib.dump(self.model, classfierPath + str(self.num) + '.model')
 
-        y_predict = self.model.predict(x_test)
-        qu = self.quality(y_predict, y_test)
-        data['quality'] = qu
-        result[self.num] = data
+    def test(self):
+        y_predict = self.model.predict(self.testx)
 
-        joblib.dump(self.model, str(self.num) + '.model')
-        print(self.matrix.shape)
-
+        print(classification_report(self.testy, y_predict))
+        #data = {'totalSize': self.totalSize, 'oneSize': self.oneSize, 'zeroSize:': self.zeroSize, 'testSize': self.testOneSize + self.testZeroSize, 'testOneSize': self.testOneSize}
+        #print(data)
+        #y_predict = self.model.predict(self.testMatrix)
+        #qu = self.quality(y_predict, self.testLabel)
+        #data['quality'] = qu
+        #print(data)
 
     def chisquare(self):
         self.matrix = SelectKBest(chi2, k = self.dim).fit_transform(self.matrix, self.label)
+
+    def train_test_split(self):
+        self.trainx = self.matrix[:self.trainSize]
+        self.testx = self.matrix[self.trainSize:]
+        self.trainy = self.label[:self.trainSize]
+        self.testy = self.label[self.trainSize:]
+        self.matrix = []
 
     def quality(self, y_predict, y_test):
         microPre = metrics.precision_score(y_test, y_predict, average='micro')
@@ -178,53 +193,91 @@ class classifier():
 
         ans['0'] = {'precision': precisionFor0, 'recall': recallFor0}
         ans['1'] = {'precision': precisionFor1, 'recall': recallFor1}
-
+        print(ans)
         return ans
 
+'''
+def accusationCMP(label, num):
+    return label == num
 
-arrayOfClassifier = []
-numberOfClassifier = len(xf_list)
-print('numberOfClassifier:', numberOfClassifier)
-for num in xf_list:
-    arrayOfClassifier.append(classifier(num))
+def classifierCMP(label, num):
+    return (label[0] == num[0] and label[2] == num[1])
+'''
 
+def trainAccusation():
+    pass
 
-def train(c):
-    fileList = os.listdir(inpath)
-    for file in fileList:
-        fin = open(inpath + file, 'r')
+def trainArticle():
+    cl = classifier()
+    print('begin read Data')
+    for i in range(15):
+        print(inpath + str(i))
+        fin = open(inpath + str(i), 'r')
         line = fin.readline()
         while line:
-            if c.oneSize > 400 and c.zeros > 500:
-                break
             line = json.loads(line)
-            c.addData(line['content'], line['meta']['law'])
+            cl.addData(line, test=False)
+            #cl.addData(line['content'], line['meta']['law'], classifierCMP, test=False)
             line = fin.readline()
         fin.close()
-        if c.oneSize > 400 and c.zeros > 500:
-            break
-    c.train()
 
-for v in arrayOfClassifier:
-    train(v)
+    for i in range(5):
+        print(inpath + str(i + 15))
+        fin = open(inpath + str(i + 15), 'r')
+        line = fin.readline()
+        while line:
+            line = json.loads(line)
+            cl.addData(line, test=True)
+            #cl.addData(line['content'], line['meta']['law'], classifierCMP, test=True)
+            line = fin.readline()
+        fin.close()
+    print('read Done')
+    cl.train()
+    cl.test()
 
-fout = open('result.txt', 'w')
-print(json.dumps(result, ensure_ascii=False), file = fout)
-fout.close()
-
+trainArticle()
 
 
 '''
-abc = classifier([2, 0])
-fin = open(inpath + '0', 'r')
-line = fin.readline()
-print('begin read')
-while line:
-    line = json.loads(line)
-    abc.addData(line['content'], line['meta']['law'])
+def trainArticle():
+    arrayOfClassifier = []
+    xf_list = []
+    fin = open('law_result1.txt', 'r')
     line = fin.readline()
-print('end read')
+    while line:
+        # line = json.loads(line)
+        line = line.split()
+        xf_list.append([int(line[0]), int(line[1])])
+        line = fin.readline()
 
-abc.train()
+    numberOfClassifier = len(xf_list)
+    print('numberOfClassifier', numberOfClassifier)
+    for num in xf_list:
+        arrayOfClassifier.append(classifier(num))
+
+    for v in arrayOfClassifier:
+        print('begin read Data')
+        for i in range(15):
+            fin = open(inpath + str(i), 'r')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                v.addData(line['content'], line['meta']['law'], classifierCMP, test=False)
+                line = fin.readline()
+            fin.close()
+
+        for i in range(5):
+            fin = open(inpath + str(i + 15), 'r')
+            line = fin.readline()
+            while line:
+                line = json.loads(line)
+                v.addData(line['content'], line['meta']['law'], classifierCMP, test=True)
+                line = fin.readline()
+            fin.close()
+        print('read Done')
+        v.train()
+        v.test()
+        break
+
+trainArticle()
 '''
-
